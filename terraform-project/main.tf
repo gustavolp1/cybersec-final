@@ -15,7 +15,7 @@ resource "aws_subnet" "public" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.1.0/24"
   map_public_ip_on_launch = true
-  availability_zone = "us-east-2a"
+  availability_zone = "us-east-2b"
   tags = {
     Name = "PublicSubnet"
   }
@@ -146,6 +146,49 @@ resource "aws_instance" "development" {
   tags = {
     Name = "DevelopmentInstance"
   }
+
+  user_data = <<-EOF
+              #!/bin/bash
+              apt update -y
+              apt install python3-pip -y
+              pip install fastapi uvicorn
+              echo "from fastapi import FastAPI" > app.py
+              echo "app = FastAPI()" >> app.py
+              echo "@app.get('/')" >> app.py
+              echo "def read_root():" >> app.py
+              echo "    return {'Hello': 'World'}" >> app.py
+              nohup uvicorn app:app --host 0.0.0.0 --port 8000 &
+            EOF
+
+  provisioner "remote-exec" {
+    inline = [
+      "sudo apt update",
+      "sudo apt install python3-pip -y",
+      "pip3 install fastapi uvicorn",
+      "echo 'from fastapi import FastAPI\napp = FastAPI()\n@app.get('/')\ndef read_root():\n    return {\"Hello\": \"World\"}' > app.py",
+      "nohup uvicorn app:app --host 0.0.0.0 --port 8000 &",
+
+      # Instala o Zabbix Agent
+      "sudo apt update",
+      "sudo apt install -y zabbix-agent",
+
+      # Configura o Zabbix Agent para conexão ativa
+      "sudo sed -i 's/^Server=127.0.0.1/Server=3.142.31.126/' /etc/zabbix/zabbix_agentd.conf",
+      "sudo sed -i 's/^ServerActive=127.0.0.1/ServerActive=3.142.31.126/' /etc/zabbix/zabbix_agentd.conf",
+      "sudo sed -i 's/^Hostname=Zabbix server/Hostname=Development/' /etc/zabbix/zabbix_agentd.conf",
+
+      # Reinicia o agente para aplicar as configurações
+      "sudo systemctl restart zabbix-agent",
+      "sudo systemctl enable zabbix-agent"
+    ]
+
+    connection {
+      type        = "ssh"
+      user        = "ubuntu" # Replace with your user
+      private_key = file(var.private_key_path)
+      host        = self.public_ip
+    }
+  }
 }
 
 resource "aws_instance" "database" {
@@ -157,6 +200,45 @@ resource "aws_instance" "database" {
 
   tags = {
     Name = "DatabaseInstance"
+  }
+
+  user_data = <<-EOF
+              #!/bin/bash
+              apt update -y
+              apt install mysql-server -y
+              systemctl start mysql
+              systemctl enable mysql
+            EOF
+
+  provisioner "remote-exec" {
+    inline = [
+      "sudo apt update",
+      "sudo apt install mysql-server -y",
+      "sudo systemctl start mysql",
+      "sudo mysql -e \"CREATE USER 'admin'@'%' IDENTIFIED BY 'yourpassword';\"",
+      "sudo mysql -e \"GRANT ALL PRIVILEGES ON *.* TO 'admin'@'%';\"",
+      "sudo mysql -e \"FLUSH PRIVILEGES;\"",
+
+      # Instala o Zabbix Agent
+      "sudo apt update",
+      "sudo apt install -y zabbix-agent",
+
+      # Configura o Zabbix Agent para conexão ativa
+      "sudo sed -i 's/^Server=127.0.0.1/Server=<ZABBIX_SERVER_IP>/' /etc/zabbix/zabbix_agentd.conf",
+      "sudo sed -i 's/^ServerActive=127.0.0.1/ServerActive=<ZABBIX_SERVER_IP>/' /etc/zabbix/zabbix_agentd.conf",
+      "sudo sed -i 's/^Hostname=Zabbix server/Hostname=${self.tags.Name}/' /etc/zabbix/zabbix_agentd.conf",
+
+      # Reinicia o agente para aplicar as configurações
+      "sudo systemctl restart zabbix-agent",
+      "sudo systemctl enable zabbix-agent"
+    ]
+
+    connection {
+      type        = "ssh"
+      user        = "ubuntu"
+      private_key = file(var.private_key_path)
+      host        = self.public_ip
+    }
   }
 }
 
@@ -207,3 +289,4 @@ resource "aws_security_group" "zabbix" {
     Name = "ZabbixSecurityGroup"
   }
 }
+
