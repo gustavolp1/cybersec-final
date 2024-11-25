@@ -91,5 +91,5 @@ Type `yes` when prompted to confirm destruction.
 
 ## Deliverables
 
-A video demo can be found [here]().
+A video demo can be found [here](https://youtu.be/6VjgdX5OJUk).
 The technical report is included in this repository (`Relatório PF Cyber`).
